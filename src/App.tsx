@@ -248,8 +248,14 @@ export default function App() {
 
       await navigator.credentials.create(options);
       setIsBiometricsEnabled(true);
-    } catch (err) {
+      setPasswordError(false);
+    } catch (err: any) {
       console.error('Biometric setup failed:', err);
+      if (err.name === 'NotAllowedError' || err.message.includes('feature is not enabled')) {
+        alert("Biometric authentication is restricted in the preview window. Please open the application in a NEW TAB to enable and use FaceID/Fingerprint.");
+      } else {
+        alert("Biometric setup failed. Please ensure your device supports it and you've granted permission.");
+      }
     }
   };
 
@@ -500,18 +506,25 @@ export default function App() {
                 )}
 
                 {showPasswordModal.type === 'set' && isBiometricsSupported && (
-                  <div className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222]">
-                    <div className="flex items-center gap-3">
-                      <Fingerprint size={20} className="text-[#A1A1A1]" />
-                      <span className="text-sm">Enable Biometrics</span>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222]">
+                      <div className="flex items-center gap-3">
+                        <Fingerprint size={20} className="text-[#A1A1A1]" />
+                        <span className="text-sm">Enable Biometrics</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => !isBiometricsEnabled ? setupBiometrics() : setIsBiometricsEnabled(false)}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'}`}
+                      >
+                        <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${isBiometricsEnabled ? 'right-1 bg-black' : 'left-1 bg-[#A1A1A1]'}`} />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => !isBiometricsEnabled ? setupBiometrics() : setIsBiometricsEnabled(false)}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'}`}
-                    >
-                      <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${isBiometricsEnabled ? 'right-1 bg-black' : 'left-1 bg-[#A1A1A1]'}`} />
-                    </button>
+                    {!isBiometricsEnabled && (
+                      <p className="text-[10px] text-[#A1A1A1] leading-relaxed">
+                        Note: If setup fails, try opening the gallery in a <span className="text-white font-medium">new tab</span>. Biometric security is often restricted within preview windows.
+                      </p>
+                    )}
                   </div>
                 )}
 
