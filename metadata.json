@@ -1,5 +1,5 @@
 {
   "name": "Minimalist Photo Gallery",
   "description": "A professional and minimalist photo gallery for uploading and managing local photos.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["publickey-credentials-create", "publickey-credentials-get", "vibration"]
 }
