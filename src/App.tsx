@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings } from 'lucide-react';
+import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings, Fingerprint } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 interface Photo {
@@ -27,6 +27,8 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState<{ type: 'set' | 'unlock', photoId?: string } | null>(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState(false);
+  const [isBiometricsSupported, setIsBiometricsSupported] = useState(false);
+  const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(false);
   
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -35,6 +37,7 @@ export default function App() {
   useEffect(() => {
     const savedPhotos = localStorage.getItem('minimal-gallery-photos');
     const savedPassword = localStorage.getItem('minimal-gallery-password');
+    const savedBiometrics = localStorage.getItem('minimal-gallery-biometrics');
     
     if (savedPhotos) {
       try {
@@ -45,6 +48,16 @@ export default function App() {
     }
     if (savedPassword) {
       setGalleryPassword(savedPassword);
+    }
+    if (savedBiometrics === 'true') {
+      setIsBiometricsEnabled(true);
+    }
+
+    // Check if biometrics are supported
+    if (window.PublicKeyCredential) {
+      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(available => {
+        setIsBiometricsSupported(available);
+      });
     }
   }, []);
 
@@ -58,6 +71,10 @@ export default function App() {
       localStorage.setItem('minimal-gallery-password', galleryPassword);
     }
   }, [galleryPassword]);
+
+  useEffect(() => {
+    localStorage.setItem('minimal-gallery-biometrics', isBiometricsEnabled.toString());
+  }, [isBiometricsEnabled]);
 
   // Handle fullscreen changes
   useEffect(() => {
@@ -162,6 +179,77 @@ export default function App() {
       } else {
         setPasswordError(true);
       }
+    }
+  };
+
+  const handleBiometricAuth = async () => {
+    if (!isBiometricsSupported) return;
+
+    try {
+      // For a real app, you'd use a challenge from the server.
+      // Here we use a dummy challenge for local verification.
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+
+      const options: CredentialRequestOptions = {
+        publicKey: {
+          challenge,
+          timeout: 60000,
+          userVerification: 'required',
+        }
+      };
+
+      // In a real implementation, you'd first register a credential.
+      // Since this is a local-only prototype, we'll use a simplified flow
+      // where we just check if the user can authenticate.
+      // We'll try to "get" a credential. If the user cancels or fails, it throws.
+      
+      // Note: This is a simplified mock of biometric auth for the UI demo.
+      // In production, you'd store a credential ID after registration.
+      const credential = await navigator.credentials.get(options);
+      
+      if (credential && showPasswordModal?.photoId) {
+        const photo = photos.find(p => p.id === showPasswordModal.photoId);
+        if (photo) setSelectedPhoto(photo);
+        setShowPasswordModal(null);
+        setPasswordInput('');
+        setPasswordError(false);
+      }
+    } catch (err) {
+      console.error('Biometric authentication failed:', err);
+      // Fallback to password
+    }
+  };
+
+  const setupBiometrics = async () => {
+    if (!isBiometricsSupported) return;
+    
+    try {
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const options: CredentialCreationOptions = {
+        publicKey: {
+          challenge,
+          rp: { name: "Minimalist Gallery" },
+          user: {
+            id: new Uint8Array(16),
+            name: "user@gallery",
+            displayName: "Gallery User"
+          },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required"
+          },
+          timeout: 60000
+        }
+      };
+
+      await navigator.credentials.create(options);
+      setIsBiometricsEnabled(true);
+    } catch (err) {
+      console.error('Biometric setup failed:', err);
     }
   };
 
@@ -386,6 +474,16 @@ export default function App() {
                 </p>
               </div>
 
+              {showPasswordModal.type === 'unlock' && isBiometricsEnabled && (
+                <button 
+                  onClick={handleBiometricAuth}
+                  className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
+                >
+                  <Fingerprint className="text-white group-hover:scale-110 transition-transform" size={24} />
+                  <span className="text-sm font-medium">Unlock with Biometrics</span>
+                </button>
+              )}
+
               <form onSubmit={handlePasswordSubmit} className="space-y-4">
                 <input 
                   autoFocus
@@ -400,6 +498,23 @@ export default function App() {
                     {showPasswordModal.type === 'set' ? 'Password must be at least 4 characters.' : 'Incorrect password. Try again.'}
                   </p>
                 )}
+
+                {showPasswordModal.type === 'set' && isBiometricsSupported && (
+                  <div className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222]">
+                    <div className="flex items-center gap-3">
+                      <Fingerprint size={20} className="text-[#A1A1A1]" />
+                      <span className="text-sm">Enable Biometrics</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => !isBiometricsEnabled ? setupBiometrics() : setIsBiometricsEnabled(false)}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'}`}
+                    >
+                      <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${isBiometricsEnabled ? 'right-1 bg-black' : 'left-1 bg-[#A1A1A1]'}`} />
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex gap-3">
                   <button 
                     type="button"
