@@ -29,6 +29,7 @@ export default function App() {
   const [passwordError, setPasswordError] = useState(false);
   const [isBiometricsSupported, setIsBiometricsSupported] = useState(false);
   const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(false);
+  const [isInIframe, setIsInIframe] = useState(false);
   
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -55,10 +56,21 @@ export default function App() {
 
     // Check if biometrics are supported
     if (window.PublicKeyCredential) {
-      PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(available => {
-        setIsBiometricsSupported(available);
-      });
+      try {
+        PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(available => {
+          setIsBiometricsSupported(available);
+        }).catch(err => {
+          console.warn('Biometric support check failed (likely iframe restriction):', err);
+          setIsBiometricsSupported(false);
+        });
+      } catch (e) {
+        console.warn('Biometric API access denied:', e);
+        setIsBiometricsSupported(false);
+      }
     }
+
+    // Check if in iframe
+    setIsInIframe(window.self !== window.top);
   }, []);
 
   // Save photos and password to localStorage whenever they change
@@ -222,7 +234,16 @@ export default function App() {
   };
 
   const setupBiometrics = async () => {
-    if (!isBiometricsSupported) return;
+    console.log('Attempting biometric setup...');
+    if (!isBiometricsSupported) {
+      console.warn('Biometrics not supported or restricted.');
+      return;
+    }
+
+    if (isInIframe) {
+      alert("Biometric authentication is restricted in the preview window. Please open the gallery in a NEW TAB to enable this feature.");
+      return;
+    }
     
     try {
       const challenge = new Uint8Array(32);
@@ -507,23 +528,41 @@ export default function App() {
 
                 {showPasswordModal.type === 'set' && isBiometricsSupported && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222]">
+                    <div className={`flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222] ${isInIframe ? 'opacity-50 grayscale' : ''}`}>
                       <div className="flex items-center gap-3">
                         <Fingerprint size={20} className="text-[#A1A1A1]" />
                         <span className="text-sm">Enable Biometrics</span>
                       </div>
                       <button
                         type="button"
+                        disabled={isInIframe}
                         onClick={() => !isBiometricsEnabled ? setupBiometrics() : setIsBiometricsEnabled(false)}
-                        className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'}`}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'} ${isInIframe ? 'cursor-not-allowed' : ''}`}
                       >
                         <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${isBiometricsEnabled ? 'right-1 bg-black' : 'left-1 bg-[#A1A1A1]'}`} />
                       </button>
                     </div>
                     {!isBiometricsEnabled && (
-                      <p className="text-[10px] text-[#A1A1A1] leading-relaxed">
-                        Note: If setup fails, try opening the gallery in a <span className="text-white font-medium">new tab</span>. Biometric security is often restricted within preview windows.
-                      </p>
+                      <div className="space-y-3">
+                        <p className="text-[10px] text-[#A1A1A1] leading-relaxed">
+                          {isInIframe ? (
+                            <span className="text-amber-400 font-medium flex items-center gap-1.5">
+                              <Fingerprint size={12} /> Biometrics are restricted in the preview window.
+                            </span>
+                          ) : (
+                            "Note: Biometric security allows you to unlock photos using FaceID or Fingerprint instead of your password."
+                          )}
+                        </p>
+                        {isInIframe && (
+                          <button
+                            type="button"
+                            onClick={() => window.open(window.location.href, '_blank')}
+                            className="w-full py-2 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-2"
+                          >
+                            Open in New Tab to Enable
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
