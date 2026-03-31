@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical } from 'lucide-react';
+import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 interface Photo {
@@ -20,7 +20,9 @@ export default function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const lightboxRef = useRef<HTMLDivElement>(null);
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Load photos from localStorage on mount
   useEffect(() => {
@@ -100,11 +102,26 @@ export default function App() {
     handleFileUpload(e.dataTransfer.files);
   };
 
+  const startLongPress = useCallback(() => {
+    longPressTimer.current = setTimeout(() => {
+      setIsEditMode(true);
+      if ('vibrate' in navigator) {
+        navigator.vibrate(50);
+      }
+    }, 600);
+  }, []);
+
+  const stopLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-sans selection:bg-white selection:text-black">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#0A0A0A]/80 backdrop-blur-md border-b border-[#1F1F1F] px-6 py-8 md:px-12">
-        <div className="max-w-7xl mx-auto flex justify-between items-end">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-4xl font-light tracking-tight mb-2">Gallery</h1>
             <p className="text-sm text-[#A1A1A1] uppercase tracking-widest font-medium">
@@ -112,22 +129,31 @@ export default function App() {
             </p>
           </div>
           
-          <label className="group relative cursor-pointer overflow-hidden bg-white text-black px-6 py-3 rounded-full transition-all hover:pr-12 active:scale-95">
-            <span className="flex items-center gap-2 text-sm font-semibold">
-              <Plus size={18} />
-              Upload
-            </span>
-            <input 
-              type="file" 
-              multiple 
-              className="hidden" 
-              accept="image/*"
-              onChange={(e) => handleFileUpload(e.target.files)}
-            />
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Plus size={18} />
-            </div>
-          </label>
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <button 
+              onClick={() => setIsEditMode(!isEditMode)}
+              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-full text-sm font-semibold transition-all active:scale-95 ${isEditMode ? 'bg-white text-black' : 'bg-[#1F1F1F] text-white hover:bg-[#2A2A2A]'}`}
+            >
+              {isEditMode ? <><Check size={18} /> Done</> : <><Edit2 size={18} /> Edit</>}
+            </button>
+
+            <label className="flex-1 md:flex-none group relative cursor-pointer overflow-hidden bg-white text-black px-6 py-3 rounded-full transition-all hover:pr-12 active:scale-95">
+              <span className="flex items-center justify-center gap-2 text-sm font-semibold">
+                <Plus size={18} />
+                Upload
+              </span>
+              <input 
+                type="file" 
+                multiple 
+                className="hidden" 
+                accept="image/*"
+                onChange={(e) => handleFileUpload(e.target.files)}
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Plus size={18} />
+              </div>
+            </label>
+          </div>
         </div>
       </header>
 
@@ -167,12 +193,30 @@ export default function App() {
                 <Reorder.Item
                   key={photo.id}
                   value={photo}
+                  drag={isEditMode}
                   initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0,
+                    rotate: isEditMode ? [0, -0.5, 0.5, 0] : 0,
+                  }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                  className="group relative aspect-[4/5] bg-[#141414] rounded-2xl overflow-hidden cursor-zoom-in active:cursor-grabbing"
-                  onClick={() => setSelectedPhoto(photo)}
+                  transition={{ 
+                    duration: 0.4, 
+                    ease: [0.23, 1, 0.32, 1],
+                    rotate: {
+                      repeat: Infinity,
+                      duration: 0.2,
+                      ease: "linear"
+                    }
+                  }}
+                  className={`group relative aspect-[4/5] bg-[#141414] rounded-2xl overflow-hidden transition-all duration-300 ${isEditMode ? 'ring-2 ring-white/20 scale-95 cursor-grabbing' : 'cursor-zoom-in'}`}
+                  onMouseDown={startLongPress}
+                  onMouseUp={stopLongPress}
+                  onMouseLeave={stopLongPress}
+                  onTouchStart={startLongPress}
+                  onTouchEnd={stopLongPress}
+                  onClick={() => !isEditMode && setSelectedPhoto(photo)}
                 >
                   <img 
                     src={photo.url} 
@@ -182,13 +226,16 @@ export default function App() {
                   />
                   
                   {/* Overlay */}
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-6">
+                  <div className={`absolute inset-0 bg-black/60 transition-opacity duration-300 flex flex-col justify-between p-6 ${isEditMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     <div className="flex justify-between items-start">
-                      <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white/40 cursor-grab active:cursor-grabbing">
+                      <div className={`w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white/40 ${isEditMode ? 'opacity-100' : 'opacity-0'}`}>
                         <GripVertical size={18} />
                       </div>
                       <button 
-                        onClick={(e) => deletePhoto(photo.id, e)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletePhoto(photo.id, e);
+                        }}
                         className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
                       >
                         <Trash2 size={18} />
