@@ -4,13 +4,15 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings, Fingerprint, Menu, RotateCcw } from 'lucide-react';
+import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings, Fingerprint, Menu, RotateCcw, Search } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 interface Photo {
   id: string;
   url: string;
   name: string;
+  caption?: string;
+  tags?: string[];
   size: string;
   date: number;
   isLocked?: boolean;
@@ -32,6 +34,7 @@ export default function App() {
   const [isInIframe, setIsInIframe] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -136,6 +139,8 @@ export default function App() {
           id: Math.random().toString(36).substr(2, 9),
           url: e.target?.result as string,
           name: file.name,
+          caption: '',
+          tags: [],
           size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
           date: Date.now(),
           isLocked: false,
@@ -151,12 +156,28 @@ export default function App() {
     setPhotos(prev => prev.filter(p => p.id !== id));
   };
 
+  const updatePhoto = (id: string, updates: Partial<Photo>) => {
+    setPhotos(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    if (selectedPhoto?.id === id) {
+      setSelectedPhoto(prev => prev ? { ...prev, ...updates } : null);
+    }
+  };
+
   const resetEverything = () => {
     if (window.confirm('¿Estás seguro de que quieres borrar todo y restablecer la web? Esta acción no se puede deshacer.')) {
       localStorage.clear();
       window.location.reload();
     }
   };
+
+  const filteredPhotos = photos.filter(photo => {
+    const query = searchQuery.toLowerCase();
+    return (
+      photo.name.toLowerCase().includes(query) ||
+      (photo.caption && photo.caption.toLowerCase().includes(query)) ||
+      (photo.tags && photo.tags.some(tag => tag.toLowerCase().includes(query)))
+    );
+  });
 
   const toggleLock = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -339,6 +360,27 @@ export default function App() {
               <ShieldAlert size={20} />
             </button>
           </div>
+
+          <div className="flex-1 max-w-md w-full">
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A1A1A1] group-focus-within:text-white transition-colors" size={18} />
+              <input 
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, caption or tags..."
+                className="w-full bg-[#1F1F1F] border border-transparent focus:border-white/20 rounded-full py-3 pl-12 pr-6 text-sm outline-none transition-all placeholder:text-[#444]"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#A1A1A1] hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
           
           <div className="flex items-center gap-4 w-full md:w-auto">
             <button 
@@ -399,15 +441,33 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : filteredPhotos.length === 0 ? (
+          <div className="h-[60vh] flex flex-col items-center justify-center space-y-6 text-center">
+            <div className="w-20 h-20 bg-[#141414] rounded-full flex items-center justify-center text-[#A1A1A1]">
+              <Search size={32} />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-medium">No matches found</h3>
+              <p className="text-[#A1A1A1] text-sm">
+                Try adjusting your search query to find what you're looking for.
+              </p>
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="text-white text-sm font-semibold underline underline-offset-4 hover:text-[#A1A1A1] transition-colors"
+              >
+                Clear search
+              </button>
+            </div>
+          </div>
         ) : (
           <Reorder.Group 
             axis="y" 
-            values={photos} 
+            values={filteredPhotos} 
             onReorder={setPhotos}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
           >
             <AnimatePresence mode="popLayout">
-              {photos.map((photo) => (
+              {filteredPhotos.map((photo) => (
                 <Reorder.Item
                   key={photo.id}
                   value={photo}
@@ -448,6 +508,30 @@ export default function App() {
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
                       referrerPolicy="no-referrer"
                     />
+                  )}
+
+                  {/* Info Overlay */}
+                  {!isEditMode && !photo.isLocked && (
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-6 flex flex-col justify-end">
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-white truncate">{photo.name}</p>
+                        {photo.caption && (
+                          <p className="text-[10px] text-white/60 line-clamp-1">{photo.caption}</p>
+                        )}
+                        {photo.tags && photo.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {photo.tags.slice(0, 3).map((tag, i) => (
+                              <span key={i} className="px-1.5 py-0.5 bg-white/10 rounded text-[8px] uppercase tracking-wider text-white/80">
+                                {tag}
+                              </span>
+                            ))}
+                            {photo.tags.length > 3 && (
+                              <span className="text-[8px] text-white/40">+{photo.tags.length - 3}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                   
                   {/* Overlay */}
@@ -671,13 +755,67 @@ export default function App() {
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-8 text-center space-y-2"
+                  className="mt-8 text-center space-y-6 max-w-xl w-full"
                 >
-                  <h2 className="text-2xl font-light text-white">{selectedPhoto.name}</h2>
-                  <div className="flex items-center gap-4 text-xs text-[#A1A1A1] uppercase tracking-widest">
-                    <span>{selectedPhoto.size}</span>
-                    <span className="w-1 h-1 bg-[#1F1F1F] rounded-full"></span>
-                    <span>{new Date(selectedPhoto.date).toLocaleDateString()}</span>
+                  <div className="space-y-2">
+                    <input 
+                      type="text"
+                      value={selectedPhoto.name}
+                      onChange={(e) => updatePhoto(selectedPhoto.id, { name: e.target.value })}
+                      className="w-full bg-transparent text-2xl font-light text-white text-center focus:outline-none border-b border-transparent focus:border-white/20 pb-1"
+                      placeholder="Photo Name"
+                    />
+                    <div className="flex items-center justify-center gap-4 text-xs text-[#A1A1A1] uppercase tracking-widest">
+                      <span>{selectedPhoto.size}</span>
+                      <span className="w-1 h-1 bg-[#1F1F1F] rounded-full"></span>
+                      <span>{new Date(selectedPhoto.date).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <textarea 
+                      value={selectedPhoto.caption || ''}
+                      onChange={(e) => updatePhoto(selectedPhoto.id, { caption: e.target.value })}
+                      placeholder="Add a caption..."
+                      className="w-full bg-[#1A1A1A] border border-[#222] rounded-xl p-4 text-sm text-[#A1A1A1] focus:outline-none focus:border-white/20 resize-none h-24 text-center"
+                    />
+
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {selectedPhoto.tags?.map((tag, index) => (
+                          <span 
+                            key={index}
+                            className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] uppercase tracking-widest flex items-center gap-2"
+                          >
+                            {tag}
+                            <button 
+                              onClick={() => {
+                                const newTags = selectedPhoto.tags?.filter((_, i) => i !== index);
+                                updatePhoto(selectedPhoto.id, { tags: newTags });
+                              }}
+                              className="hover:text-red-500 transition-colors"
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <input 
+                        type="text"
+                        placeholder="Add tags (press Enter)..."
+                        className="w-full bg-transparent text-[10px] uppercase tracking-[0.2em] text-center focus:outline-none placeholder:text-[#333]"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const input = e.currentTarget;
+                            const tag = input.value.trim();
+                            if (tag && !selectedPhoto.tags?.includes(tag)) {
+                              updatePhoto(selectedPhoto.id, { tags: [...(selectedPhoto.tags || []), tag] });
+                              input.value = '';
+                            }
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 </motion.div>
               )}
