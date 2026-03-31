@@ -35,6 +35,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
   
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -59,23 +60,26 @@ export default function App() {
       setIsBiometricsEnabled(true);
     }
 
+    // Check if in iframe
+    const inIframe = window.self !== window.top;
+    setIsInIframe(inIframe);
+
     // Check if biometrics are supported
     if (window.PublicKeyCredential) {
       try {
         PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(available => {
           setIsBiometricsSupported(available);
         }).catch(err => {
-          console.warn('Biometric support check failed (likely iframe restriction):', err);
+          console.warn('Biometric support check failed:', err);
           setIsBiometricsSupported(false);
         });
       } catch (e) {
         console.warn('Biometric API access denied:', e);
         setIsBiometricsSupported(false);
       }
+    } else {
+      setIsBiometricsSupported(false);
     }
-
-    // Check if in iframe
-    setIsInIframe(window.self !== window.top);
   }, []);
 
   // Save photos and password to localStorage whenever they change
@@ -92,6 +96,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('minimal-gallery-biometrics', isBiometricsEnabled.toString());
   }, [isBiometricsEnabled]);
+
+  const bufferToBase64 = (buffer: ArrayBuffer) => {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  };
+
+  const base64ToBuffer = (base64: string) => {
+    const binary = atob(base64);
+    const buffer = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      buffer[i] = binary.charCodeAt(i);
+    }
+    return buffer.buffer;
+  };
 
   // Handle fullscreen changes
   useEffect(() => {
@@ -227,28 +244,28 @@ export default function App() {
   const handleBiometricAuth = async () => {
     if (!isBiometricsSupported) return;
 
+    setIsScanning(true);
+    if ('vibrate' in navigator) navigator.vibrate([30, 50, 30]);
+
     try {
-      // For a real app, you'd use a challenge from the server.
-      // Here we use a dummy challenge for local verification.
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
 
+      const savedCredId = localStorage.getItem('minimal-gallery-cred-id');
+      
       const options: CredentialRequestOptions = {
         publicKey: {
           challenge,
           timeout: 60000,
           userVerification: 'required',
+          allowCredentials: savedCredId ? [{
+            id: base64ToBuffer(savedCredId),
+            type: 'public-key'
+          }] : []
         }
       };
-
-      // In a real implementation, you'd first register a credential.
-      // Since this is a local-only prototype, we'll use a simplified flow
-      // where we just check if the user can authenticate.
-      // We'll try to "get" a credential. If the user cancels or fails, it throws.
       
-      // Note: This is a simplified mock of biometric auth for the UI demo.
-      // In production, you'd store a credential ID after registration.
-      const credential = await navigator.credentials.get(options);
+      const credential = await navigator.credentials.get(options) as PublicKeyCredential;
       
       if (credential && showPasswordModal?.photoId) {
         const photo = photos.find(p => p.id === showPasswordModal.photoId);
@@ -256,22 +273,30 @@ export default function App() {
         setShowPasswordModal(null);
         setPasswordInput('');
         setPasswordError(false);
+        if ('vibrate' in navigator) navigator.vibrate(50);
       }
+      setIsScanning(false);
     } catch (err) {
       console.error('Biometric authentication failed:', err);
-      // Fallback to password
+      setIsScanning(false);
+      if (err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) {
+        if (isInIframe) {
+          alert("La autenticación biométrica real está restringida en esta ventana de vista previa. Por favor, abre la aplicación en una PESTAÑA NUEVA para usar tu huella.");
+        } else {
+          alert("Error de autenticación: Asegúrate de haber configurado tu huella correctamente.");
+        }
+      }
     }
   };
 
   const setupBiometrics = async () => {
-    console.log('Attempting biometric setup...');
-    if (!isBiometricsSupported) {
-      console.warn('Biometrics not supported or restricted.');
+    if (isInIframe) {
+      alert("La configuración de biometría real requiere una conexión segura y no puede realizarse dentro de un iframe. Por favor, abre la aplicación en una PESTAÑA NUEVA.");
       return;
     }
 
-    if (isInIframe) {
-      alert("Biometric authentication is restricted in the preview window. Please open the gallery in a NEW TAB to enable this feature.");
+    if (!isBiometricsSupported) {
+      alert("Tu dispositivo o navegador no parece soportar autenticación biométrica de plataforma.");
       return;
     }
     
@@ -297,16 +322,16 @@ export default function App() {
         }
       };
 
-      await navigator.credentials.create(options);
-      setIsBiometricsEnabled(true);
-      setPasswordError(false);
+      const credential = await navigator.credentials.create(options) as PublicKeyCredential;
+      if (credential) {
+        setIsBiometricsEnabled(true);
+        localStorage.setItem('minimal-gallery-biometrics', 'true');
+        localStorage.setItem('minimal-gallery-cred-id', bufferToBase64(credential.rawId));
+        alert("¡Huella digital configurada con éxito!");
+      }
     } catch (err: any) {
       console.error('Biometric setup failed:', err);
-      if (err.name === 'NotAllowedError' || err.message.includes('feature is not enabled')) {
-        alert("Biometric authentication is restricted in the preview window. Please open the application in a NEW TAB to enable and use FaceID/Fingerprint.");
-      } else {
-        alert("Biometric setup failed. Please ensure your device supports it and you've granted permission.");
-      }
+      alert("No se pudo configurar la huella digital. Asegúrate de que tu dispositivo tenga biometría configurada.");
     }
   };
 
@@ -602,13 +627,52 @@ export default function App() {
               </div>
 
               {showPasswordModal.type === 'unlock' && isBiometricsEnabled && (
-                <button 
-                  onClick={handleBiometricAuth}
-                  className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group"
-                >
-                  <Fingerprint className="text-white group-hover:scale-110 transition-transform" size={24} />
-                  <span className="text-sm font-medium">Unlock with Biometrics</span>
-                </button>
+                <div className="space-y-4">
+                  <button 
+                    onClick={handleBiometricAuth}
+                    disabled={isScanning}
+                    className={`w-full flex flex-col items-center justify-center gap-4 p-8 rounded-3xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all group relative overflow-hidden ${isScanning ? 'cursor-wait' : ''}`}
+                  >
+                    <div className="relative">
+                      <Fingerprint className={`text-white transition-all relative z-10 ${isScanning ? 'scale-125 text-cyan-400' : 'group-hover:scale-110'}`} size={48} />
+                      {isScanning && (
+                        <motion.div 
+                          initial={{ top: '0%' }}
+                          animate={{ top: '100%' }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="absolute left-0 right-0 h-0.5 bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.8)] z-20"
+                        />
+                      )}
+                      {isScanning && (
+                        <motion.div 
+                          initial={{ scale: 0.8, opacity: 0 }}
+                          animate={{ scale: 1.5, opacity: 0 }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                          className="absolute inset-0 bg-cyan-500/20 rounded-full z-0"
+                        />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-sm font-medium block">
+                        {isScanning ? 'Escaneando...' : 'Usar Huella Digital'}
+                      </span>
+                      <span className="text-[10px] text-[#A1A1A1] uppercase tracking-widest">
+                        {isScanning ? 'Verificando identidad' : 'Toca para escanear'}
+                      </span>
+                    </div>
+                    
+                    {/* Decorative scanning lines */}
+                    <div className={`absolute inset-0 opacity-10 pointer-events-none transition-opacity ${isScanning ? 'opacity-30' : ''}`}>
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent" />
+                    </div>
+                  </button>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="h-px flex-1 bg-[#222]" />
+                    <span className="text-[10px] text-[#444] uppercase tracking-widest font-bold">o usa tu clave</span>
+                    <div className="h-px flex-1 bg-[#222]" />
+                  </div>
+                </div>
               )}
 
               <form onSubmit={handlePasswordSubmit} className="space-y-4">
@@ -626,44 +690,42 @@ export default function App() {
                   </p>
                 )}
 
-                {showPasswordModal.type === 'set' && isBiometricsSupported && (
+                {showPasswordModal.type === 'set' && (isBiometricsSupported || isInIframe) && (
                   <div className="space-y-4">
-                    <div className={`flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222] ${isInIframe ? 'opacity-50 grayscale' : ''}`}>
+                    <div className={`flex items-center justify-between p-4 bg-[#1A1A1A] rounded-xl border border-[#222] ${isInIframe ? 'opacity-50' : ''}`}>
                       <div className="flex items-center gap-3">
                         <Fingerprint size={20} className="text-[#A1A1A1]" />
-                        <span className="text-sm">Enable Biometrics</span>
+                        <span className="text-sm">Activar Huella Digital</span>
                       </div>
                       <button
                         type="button"
-                        disabled={isInIframe}
-                        onClick={() => !isBiometricsEnabled ? setupBiometrics() : setIsBiometricsEnabled(false)}
-                        className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'} ${isInIframe ? 'cursor-not-allowed' : ''}`}
+                        onClick={() => setupBiometrics()}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${isBiometricsEnabled ? 'bg-white' : 'bg-[#333]'}`}
                       >
                         <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${isBiometricsEnabled ? 'right-1 bg-black' : 'left-1 bg-[#A1A1A1]'}`} />
                       </button>
                     </div>
-                    {!isBiometricsEnabled && (
-                      <div className="space-y-3">
-                        <p className="text-[10px] text-[#A1A1A1] leading-relaxed">
-                          {isInIframe ? (
-                            <span className="text-amber-400 font-medium flex items-center gap-1.5">
-                              <Fingerprint size={12} /> Biometrics are restricted in the preview window.
-                            </span>
-                          ) : (
-                            "Note: Biometric security allows you to unlock photos using FaceID or Fingerprint instead of your password."
-                          )}
-                        </p>
-                        {isInIframe && (
-                          <button
-                            type="button"
-                            onClick={() => window.open(window.location.href, '_blank')}
-                            className="w-full py-2 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-2"
-                          >
-                            Open in New Tab to Enable
-                          </button>
+                    <div className="space-y-3">
+                      <p className="text-[10px] text-[#A1A1A1] leading-relaxed">
+                        {isInIframe ? (
+                          <span className="text-amber-400 font-medium flex flex-col gap-2">
+                            <span className="flex items-center gap-1.5"><ShieldAlert size={12} /> Restricción de Seguridad</span>
+                            La biometría real requiere una conexión segura de nivel superior. Abre la app en una pestaña nueva para configurar tu huella.
+                          </span>
+                        ) : (
+                          "Nota: La seguridad biométrica real utiliza el hardware de tu dispositivo para proteger tus fotos."
                         )}
-                      </div>
-                    )}
+                      </p>
+                      {isInIframe && (
+                        <button
+                          type="button"
+                          onClick={() => window.open(window.location.href, '_blank')}
+                          className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] uppercase tracking-widest font-bold transition-all flex items-center justify-center gap-2 text-white"
+                        >
+                          Abrir en Pestaña Nueva
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
