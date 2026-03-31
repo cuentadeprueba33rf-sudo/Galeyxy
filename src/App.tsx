@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings, Fingerprint } from 'lucide-react';
+import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings, Fingerprint, Menu, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 interface Photo {
@@ -30,6 +30,8 @@ export default function App() {
   const [isBiometricsSupported, setIsBiometricsSupported] = useState(false);
   const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -147,6 +149,13 @@ export default function App() {
   const deletePhoto = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setPhotos(prev => prev.filter(p => p.id !== id));
+  };
+
+  const resetEverything = () => {
+    if (window.confirm('¿Estás seguro de que quieres borrar todo y restablecer la web? Esta acción no se puede deshacer.')) {
+      localStorage.clear();
+      window.location.reload();
+    }
   };
 
   const toggleLock = (id: string, e: React.MouseEvent) => {
@@ -332,6 +341,13 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4 w-full md:w-auto">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-3 bg-[#1F1F1F] text-white hover:bg-[#2A2A2A] rounded-full transition-all active:scale-95"
+              title="Menu"
+            >
+              <Menu size={20} />
+            </button>
             <button 
               onClick={() => setIsEditMode(!isEditMode)}
               className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-full text-sm font-semibold transition-all active:scale-95 ${isEditMode ? 'bg-white text-black' : 'bg-[#1F1F1F] text-white hover:bg-[#2A2A2A]'}`}
@@ -667,6 +683,131 @@ export default function App() {
               )}
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 left-0 bottom-0 w-80 z-[120] bg-[#0F0F0F] border-r border-white/5 p-8 flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-12">
+                <h2 className="text-2xl font-light tracking-tight">Menú</h2>
+                <button 
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-2 hover:bg-white/5 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <nav className="flex-1 space-y-2">
+                <button 
+                  onClick={() => {
+                    setIsSidebarOpen(false);
+                    setIsBottomPanelOpen(true);
+                  }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500 group-hover:scale-110 transition-transform">
+                    <Trash2 size={20} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium">Restablecer</p>
+                    <p className="text-[10px] text-[#A1A1A1] uppercase tracking-widest">Opciones de limpieza</p>
+                  </div>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setIsSidebarOpen(false);
+                    setShowPasswordModal({ type: 'set' });
+                  }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
+                    <Settings size={20} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium">Seguridad</p>
+                    <p className="text-[10px] text-[#A1A1A1] uppercase tracking-widest">Configurar contraseña</p>
+                  </div>
+                </button>
+              </nav>
+
+              <div className="pt-8 border-t border-white/5">
+                <p className="text-[10px] text-[#444] uppercase tracking-[0.2em] font-bold text-center">
+                  Minimalist Gallery v2.0
+                </p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Bottom Panel */}
+      <AnimatePresence>
+        {isBottomPanelOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBottomPanelOpen(false)}
+              className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 z-[140] bg-[#141414] border-t border-white/10 p-8 rounded-t-[40px] max-w-2xl mx-auto shadow-2xl"
+            >
+              <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto mb-8" />
+              
+              <div className="text-center space-y-6">
+                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
+                  <RotateCcw size={32} className="text-red-500" />
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-light tracking-tight">Restablecer Aplicación</h3>
+                  <p className="text-sm text-[#A1A1A1] max-w-xs mx-auto">
+                    Esta acción eliminará permanentemente todas tus fotos, contraseñas y configuraciones.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 pt-4">
+                  <button 
+                    onClick={resetEverything}
+                    className="w-full py-5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-3 shadow-lg shadow-red-500/20"
+                  >
+                    <Trash2 size={20} />
+                    borrar todo y restablecer web
+                  </button>
+                  <button 
+                    onClick={() => setIsBottomPanelOpen(false)}
+                    className="w-full py-5 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-bold transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
