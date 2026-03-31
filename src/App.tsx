@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2 } from 'lucide-react';
+import { Plus, X, Image as ImageIcon, Trash2, Maximize2, UploadCloud, Minimize2, GripVertical, Check, Edit2, Lock, Unlock, ShieldAlert, Shield, Settings } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 interface Photo {
@@ -13,6 +13,7 @@ interface Photo {
   name: string;
   size: string;
   date: number;
+  isLocked?: boolean;
 }
 
 export default function App() {
@@ -21,12 +22,20 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isPanicMode, setIsPanicMode] = useState(false);
+  const [galleryPassword, setGalleryPassword] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState<{ type: 'set' | 'unlock', photoId?: string } | null>(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+  
   const lightboxRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Load photos from localStorage on mount
+  // Load photos and password from localStorage on mount
   useEffect(() => {
     const savedPhotos = localStorage.getItem('minimal-gallery-photos');
+    const savedPassword = localStorage.getItem('minimal-gallery-password');
+    
     if (savedPhotos) {
       try {
         setPhotos(JSON.parse(savedPhotos));
@@ -34,12 +43,21 @@ export default function App() {
         console.error('Failed to parse saved photos', e);
       }
     }
+    if (savedPassword) {
+      setGalleryPassword(savedPassword);
+    }
   }, []);
 
-  // Save photos to localStorage whenever they change
+  // Save photos and password to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('minimal-gallery-photos', JSON.stringify(photos));
   }, [photos]);
+
+  useEffect(() => {
+    if (galleryPassword) {
+      localStorage.setItem('minimal-gallery-password', galleryPassword);
+    }
+  }, [galleryPassword]);
 
   // Handle fullscreen changes
   useEffect(() => {
@@ -49,6 +67,20 @@ export default function App() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  // Handle panic mode keyboard shortcut (Esc or P)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'p' || e.key === 'P') {
+        setIsPanicMode(prev => !prev);
+      }
+      if (e.key === 'Escape' && isPanicMode) {
+        setIsPanicMode(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPanicMode]);
 
   const toggleFullscreen = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -75,6 +107,7 @@ export default function App() {
           name: file.name,
           size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
           date: Date.now(),
+          isLocked: false,
         };
         setPhotos(prev => [newPhoto, ...prev]);
       };
@@ -85,6 +118,51 @@ export default function App() {
   const deletePhoto = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setPhotos(prev => prev.filter(p => p.id !== id));
+  };
+
+  const toggleLock = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!galleryPassword) {
+      setShowPasswordModal({ type: 'set', photoId: id });
+      return;
+    }
+    setPhotos(prev => prev.map(p => p.id === id ? { ...p, isLocked: !p.isLocked } : p));
+  };
+
+  const handlePhotoClick = (photo: Photo) => {
+    if (isEditMode) return;
+    if (photo.isLocked) {
+      setShowPasswordModal({ type: 'unlock', photoId: photo.id });
+    } else {
+      setSelectedPhoto(photo);
+    }
+  };
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (showPasswordModal?.type === 'set') {
+      if (passwordInput.length < 4) {
+        setPasswordError(true);
+        return;
+      }
+      setGalleryPassword(passwordInput);
+      if (showPasswordModal.photoId) {
+        setPhotos(prev => prev.map(p => p.id === showPasswordModal.photoId ? { ...p, isLocked: true } : p));
+      }
+      setShowPasswordModal(null);
+      setPasswordInput('');
+      setPasswordError(false);
+    } else if (showPasswordModal?.type === 'unlock') {
+      if (passwordInput === galleryPassword) {
+        const photo = photos.find(p => p.id === showPasswordModal.photoId);
+        if (photo) setSelectedPhoto(photo);
+        setShowPasswordModal(null);
+        setPasswordInput('');
+        setPasswordError(false);
+      } else {
+        setPasswordError(true);
+      }
+    }
   };
 
   const onDragOver = (e: React.DragEvent) => {
@@ -118,15 +196,24 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-sans selection:bg-white selection:text-black">
+    <div className={`min-h-screen bg-[#0A0A0A] text-[#EDEDED] font-sans selection:bg-white selection:text-black transition-all duration-700 ${isPanicMode ? 'blur-[80px] pointer-events-none scale-110' : ''}`}>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-[#0A0A0A]/80 backdrop-blur-md border-b border-[#1F1F1F] px-6 py-8 md:px-12">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-          <div>
-            <h1 className="text-4xl font-light tracking-tight mb-2">Gallery</h1>
-            <p className="text-sm text-[#A1A1A1] uppercase tracking-widest font-medium">
-              {photos.length} {photos.length === 1 ? 'Photograph' : 'Photographs'}
-            </p>
+          <div className="flex items-end gap-4">
+            <div>
+              <h1 className="text-4xl font-light tracking-tight mb-2">Gallery</h1>
+              <p className="text-sm text-[#A1A1A1] uppercase tracking-widest font-medium">
+                {photos.length} {photos.length === 1 ? 'Photograph' : 'Photographs'}
+              </p>
+            </div>
+            <button 
+              onClick={() => setIsPanicMode(true)}
+              className="mb-2 p-2 text-red-500/50 hover:text-red-500 transition-colors"
+              title="Panic Mode (P)"
+            >
+              <ShieldAlert size={20} />
+            </button>
           </div>
           
           <div className="flex items-center gap-4 w-full md:w-auto">
@@ -216,14 +303,21 @@ export default function App() {
                   onMouseLeave={stopLongPress}
                   onTouchStart={startLongPress}
                   onTouchEnd={stopLongPress}
-                  onClick={() => !isEditMode && setSelectedPhoto(photo)}
+                  onClick={() => handlePhotoClick(photo)}
                 >
-                  <img 
-                    src={photo.url} 
-                    alt={photo.name}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
-                    referrerPolicy="no-referrer"
-                  />
+                  {photo.isLocked ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-[#1A1A1A] text-[#333] transition-colors group-hover:bg-[#222]">
+                      <Lock size={48} strokeWidth={1} />
+                      <p className="mt-4 text-[10px] uppercase tracking-[0.2em] opacity-40">Locked Content</p>
+                    </div>
+                  ) : (
+                    <img 
+                      src={photo.url} 
+                      alt={photo.name}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
                   
                   {/* Overlay */}
                   <div className={`absolute inset-0 bg-black/60 transition-opacity duration-300 flex flex-col justify-between p-6 ${isEditMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
@@ -231,19 +325,27 @@ export default function App() {
                       <div className={`w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white/40 ${isEditMode ? 'opacity-100' : 'opacity-0'}`}>
                         <GripVertical size={18} />
                       </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deletePhoto(photo.id, e);
-                        }}
-                        className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={(e) => toggleLock(photo.id, e)}
+                          className={`w-10 h-10 backdrop-blur-md rounded-full flex items-center justify-center transition-colors ${photo.isLocked ? 'bg-white text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        >
+                          {photo.isLocked ? <Lock size={18} /> : <Unlock size={18} />}
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePhoto(photo.id, e);
+                          }}
+                          className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="text-white space-y-1">
-                      <p className="text-sm font-medium truncate">{photo.name}</p>
+                      <p className="text-sm font-medium truncate">{photo.isLocked ? '••••••••' : photo.name}</p>
                       <p className="text-xs opacity-60 uppercase tracking-wider">{photo.size}</p>
                     </div>
                   </div>
@@ -253,6 +355,90 @@ export default function App() {
           </Reorder.Group>
         )}
       </main>
+
+      {/* Password Modal */}
+      <AnimatePresence>
+        {showPasswordModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-[#111] border border-[#222] p-8 rounded-3xl max-w-sm w-full space-y-8 text-center"
+            >
+              <div className="w-16 h-16 bg-[#1A1A1A] rounded-full flex items-center justify-center mx-auto text-white">
+                {showPasswordModal.type === 'set' ? <Shield size={32} /> : <Lock size={32} />}
+              </div>
+              
+              <div className="space-y-2">
+                <h2 className="text-xl font-medium">
+                  {showPasswordModal.type === 'set' ? 'Set Gallery Password' : 'Locked Content'}
+                </h2>
+                <p className="text-sm text-[#A1A1A1]">
+                  {showPasswordModal.type === 'set' 
+                    ? 'Create a password to protect your private photos.' 
+                    : 'Enter your password to view this photo.'}
+                </p>
+              </div>
+
+              <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                <input 
+                  autoFocus
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="Enter password"
+                  className={`w-full bg-[#1A1A1A] border ${passwordError ? 'border-red-500' : 'border-[#222]'} rounded-xl px-4 py-3 text-center focus:outline-none focus:border-white transition-colors`}
+                />
+                {passwordError && (
+                  <p className="text-xs text-red-500">
+                    {showPasswordModal.type === 'set' ? 'Password must be at least 4 characters.' : 'Incorrect password. Try again.'}
+                  </p>
+                )}
+                <div className="flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordModal(null);
+                      setPasswordInput('');
+                      setPasswordError(false);
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl bg-[#1A1A1A] text-sm font-medium hover:bg-[#222] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-3 rounded-xl bg-white text-black text-sm font-bold hover:bg-gray-200 transition-colors"
+                  >
+                    {showPasswordModal.type === 'set' ? 'Set Password' : 'Unlock'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Panic Mode Instruction (only visible briefly when activated) */}
+      <AnimatePresence>
+        {isPanicMode && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-auto"
+            onClick={() => setIsPanicMode(false)}
+          >
+            <p className="text-white/20 text-sm uppercase tracking-[0.5em] animate-pulse">Click to restore</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Lightbox */}
       <AnimatePresence>
